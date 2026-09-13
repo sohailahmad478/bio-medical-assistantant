@@ -1,172 +1,367 @@
 import os
 import re
-import requests
 import streamlit as st
+import fitz  # PyMuPDF
 from groq import Groq
 
-st.set_page_config(page_title="Biomedical Signal Research Gap Assistant", page_icon="🧬", layout="wide")
-
-st.title("🧬 Biomedical Signal Research Gap Assistant")
-st.caption("Find recent research gaps in ECG, EEG, EMG, PPG and other biomedical signals.")
-
-st.info("Research-planning tool only. Verify every proposed gap against the original papers before using it in an MS thesis or publication.")
-
-with st.sidebar:
-    st.header("Settings")
-    secret_key = st.secrets.get("GROQ_API_KEY", "")
-    api_key = st.text_input("Groq API Key", value=secret_key, type="password")
-    model = st.selectbox("Groq model", ["openai/gpt-oss-20b", "llama-3.3-70b-versatile"])
-    years = st.slider("Recent literature window (years)", 1, 10, 3)
-    n_papers = st.slider("PubMed papers", 5, 20, 10)
-
-def pubmed_search(query, max_results=10):
-    params = {"db":"pubmed","term":query,"retmode":"json","retmax":max_results,"sort":"pub date"}
-    r = requests.get("https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi", params=params, timeout=30)
-    r.raise_for_status()
-    ids = r.json().get("esearchresult", {}).get("idlist", [])
-    if not ids:
-        return []
-
-    s = requests.get(
-        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi",
-        params={"db":"pubmed","id":",".join(ids),"retmode":"json"},
-        timeout=30
-    )
-    s.raise_for_status()
-    summaries = s.json().get("result", {})
-
-    f = requests.get(
-        "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi",
-        params={"db":"pubmed","id":",".join(ids),"retmode":"xml"},
-        timeout=30
-    )
-    f.raise_for_status()
-
-    abstracts = {}
-    for block in re.findall(r"<PubmedArticle>(.*?)</PubmedArticle>", f.text, flags=re.DOTALL):
-        pm = re.search(r"<PMID[^>]*>(.*?)</PMID>", block)
-        if not pm:
-            continue
-        texts = re.findall(r"<AbstractText[^>]*>(.*?)</AbstractText>", block, flags=re.DOTALL)
-        abstract = " ".join(re.sub(r"<.*?>", " ", x) for x in texts)
-        abstracts[pm.group(1)] = re.sub(r"\s+", " ", abstract).strip()
-
-    papers = []
-    for pid in ids:
-        item = summaries.get(pid, {})
-        papers.append({
-            "pmid": pid,
-            "title": item.get("title", ""),
-            "journal": item.get("fulljournalname", ""),
-            "date": item.get("pubdate", ""),
-            "authors": ", ".join(a.get("name", "") for a in item.get("authors", [])[:5]),
-            "abstract": abstracts.get(pid, "")
-        })
-    return papers
-
-def literature_text(papers):
-    return "\n\n".join(
-        f"[Paper {i}]\nPMID: {p['pmid']}\nTitle: {p['title']}\n"
-        f"Journal: {p['journal']}\nDate: {p['date']}\n"
-        f"Authors: {p['authors']}\nAbstract: {p['abstract'][:5000]}"
-        for i, p in enumerate(papers, 1)
-    )
-
-def analyze_gaps(client, model, topic, signal, notes, literature):
-    system = """You are a biomedical signal-processing research advisor for an MS student.
-Focus on ECG, EEG, EMG, PPG, EOG, PCG, SCG, BioZ and related physiological signals.
-
-Do not invent a research gap. Separate evidence-supported observations from your inference.
-Consider dataset diversity, class imbalance, cross-subject generalization, noise/motion
-artifacts, missing modalities, domain shift, explainability, uncertainty, lightweight/edge
-deployment, real-time performance, self-supervised learning, multimodal fusion, privacy,
-robustness, signal quality and clinical validation.
-
-Do not claim a topic is completely unexplored unless the supplied evidence clearly supports it.
-Do not give patient diagnosis or treatment advice."""
-
-    prompt = f"""Topic: {topic}
-Primary signal: {signal}
-Student notes: {notes or "None"}
-
-Recent PubMed literature:
-{literature}
-
-Prepare an MS research-gap report:
-
-1. Current research direction
-2. 5-8 research gaps. For each: gap, evidence, why it matters, difficulty, experiment.
-3. Rank the top 3 gaps for an 8-12 month MS project.
-4. Recommend ONE final research title.
-5. Give a 2-3 sentence novelty statement.
-6. Suggest datasets and evaluation metrics.
-7. Give a step-by-step roadmap from dataset to paper and Streamlit demo.
-8. List risks and limitations.
-
-Keep it practical and beginner-friendly."""
-    result = client.chat.completions.create(
-        model=model,
-        temperature=0.2,
-        messages=[{"role":"system","content":system},{"role":"user","content":prompt}]
-    )
-    return result.choices[0].message.content
-
-topic = st.text_input("Biomedical signal research topic", "Deep learning for ECG and PPG signal analysis")
-signal = st.selectbox("Primary signal", ["ECG","EEG","PPG","EMG","EOG","PCG","SCG","BioZ","Multimodal"])
-notes = st.text_area(
-    "Optional: paste abstracts, supervisor notes, or your current idea",
-    height=150,
-    placeholder="Example: I want an MS project that can be completed in 8-12 months and later demonstrated in Streamlit."
+st.set_page_config(
+    page_title="Biomedical Paper Gap Assistant",
+    page_icon="🧬",
+    layout="wide"
 )
 
-if st.button("🔎 Find Recent Research Gaps", type="primary"):
-    if not api_key:
-        st.error("Add your Groq API key in Streamlit Secrets or the sidebar.")
-        st.stop()
+st.title("🧬 Biomedical Research Gap Assistant")
+st.write(
+    "Upload a biomedical signal-processing research paper and get "
+    "evidence-based possible future research gaps, MS-level topics, and a roadmap."
+)
 
-    query = (
-        f'({signal}[Title/Abstract] OR "biomedical signal"[Title/Abstract]) '
-        f'AND ("deep learning"[Title/Abstract] OR "machine learning"[Title/Abstract] '
-        f'OR transformer[Title/Abstract] OR "self-supervised"[Title/Abstract]) '
-        f'AND ("{years} years"[PDat] : "3000"[PDat])'
+st.warning(
+    "Research support only. The suggested gaps are hypotheses/inferences, not proof of novelty. "
+    "Always verify them against the original literature."
+)
+
+# ---------- API KEY ----------
+def get_api_key():
+    try:
+        key = st.secrets.get("GROQ_API_KEY", "")
+    except Exception:
+        key = ""
+    return key or os.getenv("GROQ_API_KEY", "")
+
+with st.sidebar:
+    st.header("⚙️ Settings")
+
+    saved_key = get_api_key()
+    api_key = st.text_input(
+        "Groq API Key",
+        value=saved_key,
+        type="password",
+        help="For Streamlit Cloud, store GROQ_API_KEY in App Settings > Secrets."
     )
 
-    with st.spinner("Searching recent PubMed literature..."):
-        try:
-            papers = pubmed_search(query, n_papers)
-        except Exception as e:
-            st.error(f"PubMed search failed: {e}")
-            st.stop()
+    model = st.selectbox(
+        "Groq model",
+        ["openai/gpt-oss-20b", "llama-3.3-70b-versatile"],
+        index=0
+    )
 
-    if not papers:
-        st.warning("No papers found. Try a broader topic.")
-        st.stop()
+    response_style = st.selectbox(
+        "Analysis depth",
+        ["MS Project Focused", "Detailed Research Analysis"],
+        index=0
+    )
 
-    st.success(f"Retrieved {len(papers)} recent PubMed records.")
+# ---------- PDF EXTRACTION ----------
+def extract_pdf_text(uploaded_file):
+    pdf_bytes = uploaded_file.getvalue()
 
-    with st.expander("📚 Literature retrieved"):
-        for p in papers:
-            st.markdown(f"**{p['title']}**")
-            st.caption(f"PMID {p['pmid']} | {p['date']} | {p['journal']}")
-            if p["abstract"]:
-                st.write(p["abstract"][:1200] + ("..." if len(p["abstract"]) > 1200 else ""))
+    if not pdf_bytes:
+        raise ValueError("The uploaded PDF is empty.")
 
-    with st.spinner("Analyzing research gaps with Groq..."):
-        try:
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+    pages = []
+    for page_number, page in enumerate(doc, start=1):
+        text = page.get_text("text")
+        text = re.sub(r"\s+", " ", text).strip()
+
+        if text:
+            pages.append(
+                f"\n--- PAGE {page_number} ---\n{text}"
+            )
+
+    doc.close()
+
+    full_text = "\n".join(pages)
+
+    if len(full_text.strip()) < 500:
+        raise ValueError(
+            "Very little text was extracted. This may be a scanned/image-only PDF. "
+            "Please upload a text-based PDF."
+        )
+
+    return full_text
+
+# ---------- TEXT CHUNKING ----------
+def split_text(text, max_chars=12000):
+    words = text.split()
+    chunks = []
+    current = []
+
+    current_len = 0
+
+    for word in words:
+        if current_len + len(word) + 1 > max_chars and current:
+            chunks.append(" ".join(current))
+            current = []
+            current_len = 0
+
+        current.append(word)
+        current_len += len(word) + 1
+
+    if current:
+        chunks.append(" ".join(current))
+
+    return chunks
+
+# ---------- GROQ ANALYSIS ----------
+def analyze_paper(client, model, paper_text, depth):
+    chunks = split_text(paper_text, 12000)
+
+    # Avoid exceeding Groq token limits.
+    max_chunks = 5
+    selected_chunks = chunks[:max_chunks]
+
+    context = "\n\n".join(
+        f"===== PAPER SECTION {i + 1} =====\n{chunk}"
+        for i, chunk in enumerate(selected_chunks)
+    )
+
+    system_prompt = """You are an expert biomedical signal-processing research advisor.
+
+You help an MS student identify FUTURE RESEARCH POSSIBILITIES from an uploaded research paper.
+
+Common biomedical signals include ECG, EEG, EMG, PPG, EOG, PCG, SCG and multimodal physiological signals.
+
+IMPORTANT RULES:
+1. First identify what the paper actually did.
+2. Identify limitations explicitly stated by the authors.
+3. Identify future work explicitly stated by the authors.
+4. Then generate additional POSSIBLE research gaps by reasoning from the paper.
+5. Clearly label author-stated limitations/future work versus AI-inferred possibilities.
+6. Never claim that an inferred gap is completely unexplored.
+7. Do not invent datasets, numerical results, or claims that are not supported by the paper.
+8. Explain why each proposed gap could be useful.
+9. Prefer realistic MS-level research directions.
+10. Do not provide medical diagnosis or treatment advice.
+
+Potential gap dimensions to examine:
+- small dataset
+- class imbalance
+- limited subjects
+- single-center/single-device data
+- cross-subject generalization
+- cross-device/domain generalization
+- noise and motion artifacts
+- signal quality
+- missing data
+- missing modalities
+- real-time performance
+- computational cost
+- lightweight/edge deployment
+- explainability
+- uncertainty/calibration
+- robustness
+- self-supervised learning
+- transfer learning
+- multimodal fusion
+- privacy/federated learning
+- external validation
+- reproducibility
+- clinical validation
+"""
+
+    if depth == "MS Project Focused":
+        output_request = """Give a practical MS-focused report."""
+    else:
+        output_request = """Give a detailed research-analysis report."""
+
+    user_prompt = f"""Analyze the following biomedical research paper.
+
+{output_request}
+
+Return these sections:
+
+## 1. Paper Identification
+- likely title
+- biomedical signal(s)
+- research problem
+- main objective
+
+## 2. What the Authors Actually Did
+- dataset
+- preprocessing
+- method/model
+- evaluation
+- main result
+
+## 3. Author-Stated Limitations
+Only list limitations that are supported by the paper.
+
+## 4. Author-Stated Future Work
+Only list future work actually mentioned in the paper.
+If it is not available in the supplied text, say "Not clearly stated in the supplied text."
+
+## 5. Possible Future Research Gaps
+Give 6-10 possibilities.
+
+For EVERY gap use:
+- Gap
+- Evidence from this paper
+- Why it matters
+- Proposed improvement
+- Expected novelty: Low / Medium / High
+- Difficulty: Easy / Medium / Hard
+- MS suitability: Low / Medium / High
+
+## 6. Top 3 MS Research Opportunities
+Rank them and explain the ranking.
+
+## 7. Recommended MS Research Topic
+Give ONE strong title based on the paper.
+
+## 8. Novelty Statement
+Give a cautious 2-3 sentence novelty statement.
+
+## 9. Dataset Suggestions
+Suggest appropriate public biomedical signal datasets, but clearly label them as suggestions rather than claims from the paper.
+
+## 10. Experimental Roadmap
+Give 8-12 steps from dataset selection to thesis/paper.
+
+## 11. Possible Deployment
+Explain whether the proposed work could reasonably be demonstrated using Streamlit.
+
+## 12. Important Warning
+Explain what must be verified through additional literature before claiming novelty.
+
+PAPER TEXT:
+{context}
+"""
+
+    response = client.chat.completions.create(
+        model=model,
+        temperature=0.15,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+    )
+
+    return response.choices[0].message.content, len(chunks), len(selected_chunks)
+
+# ---------- UI ----------
+uploaded_file = st.file_uploader(
+    "📄 Upload your biomedical research paper (PDF)",
+    type=["pdf"],
+    accept_multiple_files=False,
+    max_upload_size=50
+)
+
+topic = st.text_input(
+    "Optional: What area are you interested in?",
+    placeholder="Example: ECG, PPG, EEG, explainable AI, lightweight deep learning..."
+)
+
+if uploaded_file:
+    st.success(f"Uploaded: {uploaded_file.name}")
+
+    try:
+        paper_text = extract_pdf_text(uploaded_file)
+
+        word_count = len(paper_text.split())
+        page_count = paper_text.count("--- PAGE ")
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Pages detected", page_count)
+        c2.metric("Words extracted", f"{word_count:,}")
+        c3.metric("File size", f"{len(uploaded_file.getvalue()) / 1024 / 1024:.2f} MB")
+
+        with st.expander("👁️ Preview extracted paper text"):
+            st.write(paper_text[:6000] + ("..." if len(paper_text) > 6000 else ""))
+
+        if st.button("🔎 Analyze Future Research Gaps", type="primary"):
+            if not api_key:
+                st.error(
+                    "Groq API key is missing. Add GROQ_API_KEY in Streamlit Secrets "
+                    "or enter it in the sidebar."
+                )
+                st.stop()
+
             client = Groq(api_key=api_key)
-            report = analyze_gaps(client, model, topic, signal, notes, literature_text(papers))
-        except Exception as e:
-            st.error(f"Groq request failed: {e}")
-            st.stop()
 
-    st.markdown("---")
-    st.header("🎯 Research Gap Report")
-    st.markdown(report)
+            extra_instruction = ""
+            if topic.strip():
+                extra_instruction = (
+                    f"\nThe student's preferred research area is: {topic}. "
+                    "Prioritize gaps relevant to this area when ranking the opportunities."
+                )
 
-    st.markdown("---")
-    st.subheader("🔗 Literature used")
-    for p in papers:
-        st.markdown(f"- **{p['title']}** — PMID {p['pmid']} ([PubMed](https://pubmed.ncbi.nlm.nih.gov/{p['pmid']}/))")
+            analysis_input = paper_text + extra_instruction
+
+            with st.spinner("Reading the paper and identifying future research gaps..."):
+                try:
+                    report, total_chunks, used_chunks = analyze_paper(
+                        client,
+                        model,
+                        analysis_input,
+                        response_style
+                    )
+                except Exception as e:
+                    st.error(f"Groq analysis failed: {e}")
+                    st.stop()
+
+            st.markdown("---")
+            st.header("🎯 Future Research Gap Analysis")
+            st.markdown(report)
+
+            st.download_button(
+                "⬇️ Download Analysis as TXT",
+                data=report,
+                file_name="biomedical_research_gap_analysis.txt",
+                mime="text/plain"
+            )
+
+            with st.expander("ℹ️ Processing information"):
+                st.write(f"Text chunks detected: {total_chunks}")
+                st.write(f"Chunks analyzed: {used_chunks}")
+                st.write(
+                    "The app analyzes the beginning of long papers to stay within model "
+                    "context limits. For very long papers, future versions can add "
+                    "section-aware retrieval."
+                )
+
+else:
+    st.markdown(
+        """
+### How to use
+
+1. Upload a biomedical signal-processing paper.
+2. Optionally enter your preferred area such as **ECG, PPG, EEG, EMG, explainable AI,
+   lightweight deep learning, or wearable monitoring**.
+3. Click **Analyze Future Research Gaps**.
+4. The app separates:
+   - what the authors actually did
+   - author-stated limitations
+   - author-stated future work
+   - AI-inferred possible research gaps
+   - top MS opportunities
+   - a proposed research title
+   - dataset suggestions
+   - an implementation roadmap
+
+### Example
+
+Upload a paper titled:
+
+**Deep Learning-Based ECG Arrhythmia Classification**
+
+The assistant may identify possibilities such as:
+
+- cross-subject validation
+- robustness to noisy ECG
+- explainable ECG classification
+- lightweight models for edge devices
+- external dataset validation
+- multimodal ECG + PPG fusion
+
+These are **possible research directions**, not automatic proof of novelty.
+"""
+    )
 
 st.markdown("---")
-st.caption("Always read and verify the original papers. This tool is not a medical diagnostic system.")
+st.caption(
+    "Biomedical research assistant — not a clinical diagnostic system. "
+    "Always verify proposed gaps using the original paper and additional recent literature."
+)
