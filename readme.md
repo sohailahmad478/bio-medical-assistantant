@@ -1,55 +1,44 @@
-Biomedical Research Gap Assistant
+Biomedical Paper Gap Assistant — RAG
 
-Upload a biomedical signal-processing research paper and use Groq to identify possible future research gaps.
-
-Features
-
-PDF upload directly in Streamlit
-
-Extracts text with PyMuPDF
-
-Identifies what the paper actually did
-
-Extracts author-stated limitations
-
-Extracts author-stated future work
-
-Generates additional possible research gaps
-
-Ranks opportunities for an MS project
-
-Suggests one research title
-
-Suggests datasets and evaluation metrics
-
-Creates an 8-12 step research roadmap
-
-Provides a Streamlit deployment direction
+A Streamlit application that lets you upload a biomedical signal-processing research paper and use RAG (Retrieval-Augmented Generation) with FAISS, Sentence Transformers, PyMuPDF, and Groq to identify possible future research gaps.
 
 Files
 
+Only two application files are required:
+
 app.py
 requirements.txt
-readme.md
+
+How it works
+
+Research Paper PDF
+        ↓
+PyMuPDF text extraction
+        ↓
+Small text chunks
+        ↓
+Sentence Transformers embeddings
+        ↓
+FAISS vector index
+        ↓
+Retrieve relevant chunks
+        ↓
+Groq GPT-OSS-20B
+        ↓
+Possible research gaps
+        ↓
+MS research topics + roadmap
+
+The important improvement is that the complete paper is NOT sent to Groq. Only the most relevant retrieved chunks are sent for each question. This greatly reduces token usage and helps avoid 413 TPM errors.
 
 Run locally
+
+Open a terminal in the project folder:
 
 pip install -r requirements.txt
 streamlit run app.py
 
-Groq API key
-
-For local use, you can enter the key in the sidebar.
-
-For Streamlit Community Cloud, use App Settings -> Secrets:
-
-GROQ_API_KEY = "your_groq_api_key"
-
-Do NOT upload your API key to GitHub.
-
-Streamlit recommends storing secrets outside the repository and supports app secrets for deployed applications.
-
-Deploy on Streamlit Community Cloud
+Streamlit Cloud deployment
 
 Create a GitHub repository.
 
@@ -59,92 +48,38 @@ app.py
 
 requirements.txt
 
-readme.md
+Create a Streamlit Community Cloud app from the repository.
 
-Open Streamlit Community Cloud.
+In the Streamlit app settings, open Secrets.
 
-Select the GitHub repository.
+Add:
 
-Select app.py.
+GROQ_API_KEY = "YOUR_GROQ_API_KEY"
 
-Add the Groq key under Secrets.
+Do NOT put your real API key inside app.py or commit it to GitHub.
 
-Deploy.
+What the app can produce
 
-Research workflow
+Paper evidence
 
-Research Paper PDF
-       ↓
-PyMuPDF text extraction
-       ↓
-Paper understanding
-       ↓
-Author limitations
-       ↓
-Author future work
-       ↓
-AI-inferred possible gaps
-       ↓
-Gap ranking
-       ↓
-MS research topic
-       ↓
-Dataset
-       ↓
-Baseline
-       ↓
-Proposed method
-       ↓
-Robustness / explainability
-       ↓
-Evaluation
-       ↓
-Streamlit demo
-       ↓
-Paper + thesis
+Author-stated limitations/future work
 
-Important distinction
+AI-inferred possible research gaps
 
-The application separates:
+MS-level research opportunities
 
-Author-stated future work
+Recommended research topic
 
-Something explicitly mentioned by the paper's authors.
+Cautious novelty estimate
 
-AI-inferred possible gap
+General dataset directions
 
-A research possibility inferred from limitations, methodology, evaluation, or missing experiments.
+Step-by-step research roadmap
 
-An AI-inferred gap is NOT automatically a novel contribution.
+Downloadable analysis
 
-Before using a gap in an MS proposal, perform a second literature review using recent papers.
+Important
 
-Example MS direction
+This is a research assistant, not a medical diagnostic system.
 
-For an ECG paper, possible directions may include:
-
-robust ECG classification under noise
-
-cross-subject generalization
-
-explainable deep learning
-
-lightweight real-time ECG models
-
-external dataset validation
-
-ECG + PPG multimodal learning
-
-self-supervised ECG representation learning
-
-The correct final topic should be selected only after checking recent literature.
-
-PDF limitation
-
-This version works best with text-based PDFs. Scanned image-only PDFs may produce little extracted text.
-
-For very long papers, the current version analyzes a limited amount of extracted text to avoid exceeding model context limits. A future version can add section-aware retrieval/RAG so the assistant searches the entire paper.
-
-Safety
-
-This application is for academic research assistance. It does not diagnose patients or provide treatment advice
+Scanned/image-only PDFs may not work because the basic version uses PDF text extraction rather than OCR.
