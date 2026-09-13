@@ -245,8 +245,7 @@ PAPER TEXT:
 uploaded_file = st.file_uploader(
     "📄 Upload your biomedical research paper (PDF)",
     type=["pdf"],
-    accept_multiple_files=False,
-    max_upload_size=50
+    accept_multiple_files=False
 )
 
 topic = st.text_input(
@@ -254,7 +253,7 @@ topic = st.text_input(
     placeholder="Example: ECG, PPG, EEG, explainable AI, lightweight deep learning..."
 )
 
-if uploaded_file:
+if uploaded_file is not None:
     st.success(f"Uploaded: {uploaded_file.name}")
 
     try:
@@ -266,37 +265,43 @@ if uploaded_file:
         c1, c2, c3 = st.columns(3)
         c1.metric("Pages detected", page_count)
         c2.metric("Words extracted", f"{word_count:,}")
-        c3.metric("File size", f"{len(uploaded_file.getvalue()) / 1024 / 1024:.2f} MB")
+        c3.metric(
+            "File size",
+            f"{len(uploaded_file.getvalue()) / 1024 / 1024:.2f} MB"
+        )
 
         with st.expander("👁️ Preview extracted paper text"):
-            st.write(paper_text[:6000] + ("..." if len(paper_text) > 6000 else ""))
+            preview = paper_text[:6000]
+            st.write(preview + ("..." if len(paper_text) > 6000 else ""))
 
         if st.button("🔎 Analyze Future Research Gaps", type="primary"):
             if not api_key:
                 st.error(
-                    "Groq API key is missing. Add GROQ_API_KEY in Streamlit Secrets "
-                    "or enter it in the sidebar."
+                    "Groq API key is missing. Add GROQ_API_KEY in Streamlit "
+                    "Secrets or enter it in the sidebar."
                 )
                 st.stop()
 
             client = Groq(api_key=api_key)
 
-            extra_instruction = ""
             if topic.strip():
-                extra_instruction = (
-                    f"\nThe student's preferred research area is: {topic}. "
-                    "Prioritize gaps relevant to this area when ranking the opportunities."
+                analysis_input = (
+                    paper_text
+                    + "\n\nSTUDENT'S PREFERRED RESEARCH AREA:\n"
+                    + topic.strip()
                 )
+            else:
+                analysis_input = paper_text
 
-            analysis_input = paper_text + extra_instruction
-
-            with st.spinner("Reading the paper and identifying future research gaps..."):
+            with st.spinner(
+                "Reading the paper and identifying future research gaps..."
+            ):
                 try:
                     report, total_chunks, used_chunks = analyze_paper(
-                        client,
-                        model,
-                        analysis_input,
-                        response_style
+                        client=client,
+                        model=model,
+                        paper_text=analysis_input,
+                        depth=response_style
                     )
                 except Exception as e:
                     st.error(f"Groq analysis failed: {e}")
@@ -317,21 +322,23 @@ if uploaded_file:
                 st.write(f"Text chunks detected: {total_chunks}")
                 st.write(f"Chunks analyzed: {used_chunks}")
                 st.write(
-                    "The app analyzes the beginning of long papers to stay within model "
-                    "context limits. For very long papers, future versions can add "
-                    "section-aware retrieval."
+                    "For very long papers, the current version analyzes a limited "
+                    "number of chunks to stay within the model context limit."
                 )
+
+    except Exception as e:
+        st.error(f"Could not read the PDF: {e}")
 
 else:
     st.markdown(
         """
 ### How to use
 
-1. Upload a biomedical signal-processing paper.
-2. Optionally enter your preferred area such as **ECG, PPG, EEG, EMG, explainable AI,
-   lightweight deep learning, or wearable monitoring**.
+1. Upload a biomedical signal-processing research paper.
+2. Optionally enter your preferred area such as **ECG, PPG, EEG, EMG,
+   explainable AI, lightweight deep learning, or wearable monitoring**.
 3. Click **Analyze Future Research Gaps**.
-4. The app separates:
+4. The assistant separates:
    - what the authors actually did
    - author-stated limitations
    - author-stated future work
@@ -343,11 +350,11 @@ else:
 
 ### Example
 
-Upload a paper titled:
+Upload a paper about:
 
 **Deep Learning-Based ECG Arrhythmia Classification**
 
-The assistant may identify possibilities such as:
+The assistant can investigate possible directions such as:
 
 - cross-subject validation
 - robustness to noisy ECG
