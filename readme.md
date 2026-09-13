@@ -1,106 +1,150 @@
-# Biomedical Signal Research Gap Assistant
+Biomedical Research Gap Assistant
 
-A Streamlit application for finding recent research gaps in biomedical signal processing.
+Upload a biomedical signal-processing research paper and use Groq to identify possible future research gaps.
 
-## Features
+Features
 
-- ECG, EEG, PPG, EMG, EOG, PCG, SCG, BioZ and multimodal signals
-- Searches recent PubMed literature
-- Collects paper metadata and abstracts
-- Uses Groq to synthesize evidence-supported research gaps
-- Ranks gaps for an MS project
-- Suggests a final research title, datasets, metrics and roadmap
-- Can be deployed on GitHub + Streamlit Community Cloud
+PDF upload directly in Streamlit
 
-## Files
+Extracts text with PyMuPDF
 
-```text
+Identifies what the paper actually did
+
+Extracts author-stated limitations
+
+Extracts author-stated future work
+
+Generates additional possible research gaps
+
+Ranks opportunities for an MS project
+
+Suggests one research title
+
+Suggests datasets and evaluation metrics
+
+Creates an 8-12 step research roadmap
+
+Provides a Streamlit deployment direction
+
+Files
+
 app.py
 requirements.txt
 readme.md
-```
 
-## Run locally
+Run locally
 
-```bash
 pip install -r requirements.txt
 streamlit run app.py
-```
 
-## Streamlit Cloud
+Groq API key
 
-Upload the three files to GitHub, create a Streamlit app, and select `app.py`.
+For local use, you can enter the key in the sidebar.
 
-Add this to Streamlit Secrets:
+For Streamlit Community Cloud, use App Settings -> Secrets:
 
-```toml
 GROQ_API_KEY = "your_groq_api_key"
-```
 
-## Recommended MS roadmap
+Do NOT upload your API key to GitHub.
 
-1. Select one signal: ECG, EEG, PPG or EMG.
-2. Search and read recent papers.
-3. Identify repeated limitations.
-4. Confirm the gap in original papers.
-5. Select a public dataset.
-6. Build a classical ML baseline.
-7. Build a deep-learning baseline such as 1D-CNN/CNN-LSTM.
-8. Add the proposed novelty: robustness, explainability, lightweight AI, self-supervised learning, multimodal fusion, or cross-subject validation.
-9. Evaluate with F1, AUROC, sensitivity, specificity, calibration and robustness where appropriate.
-10. Build a Streamlit demonstration.
-11. Perform statistical/error analysis.
-12. Write thesis and paper.
+Streamlit recommends storing secrets outside the repository and supports app secrets for deployed applications.
 
-## Strong directions to investigate
+Deploy on Streamlit Community Cloud
 
-### A. Robust ECG/PPG under signal degradation
-Study motion artifact, poor sensor contact and missing/corrupted segments.
+Create a GitHub repository.
 
-### B. Lightweight and explainable biomedical AI
-Study whether a compact model can retain performance while providing interpretable predictions.
+Upload:
 
-### C. Self-supervised biomedical signal learning
-Use unlabeled ECG/PPG/EEG recordings for representation learning before supervised classification.
+app.py
 
-### D. Cross-subject/cross-device generalization
-Test whether models trained on one group/device generalize to unseen subjects/devices.
+requirements.txt
 
-### E. Multimodal ECG + PPG
-Study adaptive fusion when one signal is noisy or unavailable.
+readme.md
 
-These are candidate directions, not claims that no previous work exists. The original papers must be checked before finalizing a thesis gap.
+Open Streamlit Community Cloud.
 
-## Example project direction
+Select the GitHub repository.
 
-**Explainable and Lightweight Deep Learning for Robust ECG/PPG Analysis Under Signal Degradation**
+Select app.py.
 
-Pipeline:
+Add the Groq key under Secrets.
 
-```text
-Public ECG/PPG dataset
-        ↓
-Preprocessing
-        ↓
-Signal-quality assessment
-        ↓
-Noise/motion degradation
-        ↓
-1D-CNN or CNN-LSTM baseline
-        ↓
-Lightweight model
-        ↓
-Explainability
-        ↓
-Cross-subject testing
-        ↓
-Robustness analysis
-        ↓
+Deploy.
+
+Research workflow
+
+Research Paper PDF
+       ↓
+PyMuPDF text extraction
+       ↓
+Paper understanding
+       ↓
+Author limitations
+       ↓
+Author future work
+       ↓
+AI-inferred possible gaps
+       ↓
+Gap ranking
+       ↓
+MS research topic
+       ↓
+Dataset
+       ↓
+Baseline
+       ↓
+Proposed method
+       ↓
+Robustness / explainability
+       ↓
+Evaluation
+       ↓
 Streamlit demo
-        ↓
+       ↓
 Paper + thesis
-```
 
-## Safety
+Important distinction
 
-This is a research assistant, not a clinical diagnostic system. Verify all research claims against the original scientific papers.
+The application separates:
+
+Author-stated future work
+
+Something explicitly mentioned by the paper's authors.
+
+AI-inferred possible gap
+
+A research possibility inferred from limitations, methodology, evaluation, or missing experiments.
+
+An AI-inferred gap is NOT automatically a novel contribution.
+
+Before using a gap in an MS proposal, perform a second literature review using recent papers.
+
+Example MS direction
+
+For an ECG paper, possible directions may include:
+
+robust ECG classification under noise
+
+cross-subject generalization
+
+explainable deep learning
+
+lightweight real-time ECG models
+
+external dataset validation
+
+ECG + PPG multimodal learning
+
+self-supervised ECG representation learning
+
+The correct final topic should be selected only after checking recent literature.
+
+PDF limitation
+
+This version works best with text-based PDFs. Scanned image-only PDFs may produce little extracted text.
+
+For very long papers, the current version analyzes a limited amount of extracted text to avoid exceeding model context limits. A future version can add section-aware retrieval/RAG so the assistant searches the entire paper.
+
+Safety
+
+This application is for academic research assistance. It does not diagnose patients or provide treatment advice
